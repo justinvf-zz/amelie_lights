@@ -7,11 +7,21 @@ from matplotlib.lines import Line2D
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
-PORT = '/dev/cu.usbmodemfa1311'
+PORT = '/dev/cu.usbmodemfa1341'
 BAUD = 115200
 BINS = 128
 SMOOTH = .5
 RUNNING_AVG_SMOOTH = .99
+
+class PeriodicLogger(object):
+    def __init__(self, period_seconds):
+        self.period_seconds = period_seconds
+        self.last_log = 0
+
+    def log(self, msg):
+        if time.time() - self.last_log > self.period_seconds:
+            print msg
+            self.last_log = time.time()
 
 class SecondLogger(object):
     def __init__(self, tracking, period_seconds):
@@ -24,17 +34,15 @@ class SecondLogger(object):
         self.count += 1
         duration = time.time() - self.last_output
         if duration > self.period_seconds:
-            print('{}: {}/s'.format(self.tracking, self.count / duration))
+            print('{}: {:.2f}/s'.format(self.tracking, self.count / duration))
             self.last_output = time.time()
             self.count = 0
 
 class Sampler(object):
-
     def __init__(self, serial_port, baud):
         print 'Opening port'
         self.serial = serial.Serial(serial_port, baud)
         print 'Port opened'
-
         self.lines_read = SecondLogger('Lines Read', 5)
 
     def read_data(self):
@@ -54,9 +62,6 @@ class Sampler(object):
             self.lines_read.ping()
             return np.array(parsed, dtype=np.int)
 
-    def new_data(self):
-        return self.read_data()
-
     def calibrate(self, seconds):
         print 'Calibrating for {} seconds'.format(seconds)
         end = time.time() + seconds
@@ -70,10 +75,37 @@ class Sampler(object):
         print 'Average:\n{}'.format(self.average)
 
 
+class NearMaxTracker(object):
+    def __init__(self):
+        self.last_max_index = None
+        self.last_max_repeat = 0
+        self.max_logger = PeriodicLogger(2)
+
+    def repeat_to_zero(self):
+        if self.last_max_repeat > 3:
+            print 'Got {} repeats around max {}'.format(self.last_max_repeat, self.last_max_index)
+        self.last_max_repeat = 0
+        self.last_max_index = None
+
+    def feed(self, max_val, max_index):
+        self.max_logger.log('Max: {} Index: {}'.format(max_val, max_index))
+        if max_val < 16 or max_index > 20:
+            self.repeat_to_zero()
+            return
+        if self.last_max_index is not None:
+            if abs(max_index - self.last_max_index) <= 2:
+                self.last_max_repeat += 1
+                if self.last_max_repeat > 4:
+                    print 'Max index: {}'.format(self.last_max_index)
+            else:
+                self.repeat_to_zero()
+        self.last_max_index = max_index
+
 class Chart(object):
     def __init__(self, ax, sampler):
         self.ax = ax
         self.sampler = sampler
+        self.max_tracker = NearMaxTracker()
 
         self.xdata = np.linspace(0, 20000, BINS)
         d = self.sampler.read_data()
@@ -97,7 +129,9 @@ class Chart(object):
         self.raw_data = self.raw_data * SMOOTH +  (1 - SMOOTH) * new_data
         transformed = np.clip(self.raw_data - self.running_avg, 0, 256)
         self.line.set_data(self.xdata, transformed)
-        max_val = self.xdata[np.argmax(transformed)]
+        max_bucket = np.argmax(transformed)
+        max_val = self.raw_data[max_bucket]
+        self.max_tracker.feed(max_val, max_bucket)
         self.max_line.set_data(np.array([max_val, max_val]),
                                np.array([0,244]))
         return self.line, self.max_line
