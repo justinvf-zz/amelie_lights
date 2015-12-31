@@ -13,9 +13,11 @@
 // How many NeoPixels are attached to the Arduino?
 #define NUMPIXELS      16
 #define R               0
-#define G               1
-#define B               2
-#define DELAY_MILLIS   50
+#define G               0
+#define B               0
+#define DELAY_MILLIS   10
+#define JUMP            5
+#define MAX_BRIGHT    150
 
 // When we setup the NeoPixel library, we tell it how many pixels, and which pin to use to send signals.
 // Note that for older NeoPixel strips you might need to change the third parameter--see the strandtest
@@ -30,9 +32,18 @@ void setup() {
   update_pixels();
   for (int i = 0; i < 16; i++) {
     for (int j = 0; j < 3; j++) {
-      current_color[i][j] = random(200);
+      current_color[i][j] = random(MAX_BRIGHT);
     }
   }
+}
+
+byte clamp(int c) {
+  if (c > MAX_BRIGHT) {
+    return MAX_BRIGHT;
+  } else if (c < 0) {
+    return 0;
+  }
+  return (byte)c;
 }
 
 void set_to_first() {
@@ -46,7 +57,7 @@ void set_to_first() {
 void new_random_targets() {
   for (int i = 1; i < NUMPIXELS; i++) {
     for (int j = 0; j < 3; j++) {
-      target_color[i][j] = random(150);
+      target_color[i][j] = random(MAX_BRIGHT);
     }
   }
 }
@@ -54,6 +65,14 @@ void new_random_targets() {
 void update_pixels() {
   for (int i = 0; i < NUMPIXELS; i++) {
     for (int j = 0; j < 3; j++) {
+      if (current_color[i][j] < target_color[i][j]) {
+	current_color[i][j] += random(JUMP);
+      } else if (current_color[i][j] < target_color[i][j]) {
+	current_color[i][j] -= random(JUMP);
+	if (current_color[i][j	 0) {
+	  current_color[i][j] = 0;
+      }
+      }
       current_color[i][j] += (target_color[i][j] - current_color[i][j])/8;
     }
   }
